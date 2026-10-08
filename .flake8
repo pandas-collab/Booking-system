@@ -1,0 +1,12 @@
+[flake8]
+exclude =
+    node_modules,
+    .git,
+    __pycache__,
+    .tox,
+    .eggs,
+    *.egg,
+    build,
+    dist
+max-line-length = 88
+ignore = E203, W503

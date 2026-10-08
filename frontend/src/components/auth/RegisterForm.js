@@ -1,91 +1,54 @@
 import React, { useState } from 'react';
-
-// Mock users for testing: john.doe@email.com/password123, sarah.chen@email.com/travel2024, admin@travelapp.com/admin123
 import './RegisterForm.css';
 
 const RegisterForm = () => {
   const [formData, setFormData] = useState({
-    fullName: '',
     email: '',
     password: '',
-    confirmPassword: ''
+    confirmPassword: '',
+    firstName: '',
+    lastName: ''
   });
-
   const [errors, setErrors] = useState({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const [success, setSuccess] = useState(false);
 
-  const passwordStrength = {
-    score: 0,
-    feedback: []
+  const validateEmail = (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
   };
 
-  const calculatePasswordStrength = (password) => {
-    let score = 0;
-    const feedback = [];
-
-    if (password.length >= 8) {
-      score += 1;
-    } else {
-      feedback.push('At least 8 characters');
-    }
-
-    if (/[a-z]/.test(password)) {
-      score += 1;
-    } else {
-      feedback.push('Include lowercase letters');
-    }
-
-    if (/[A-Z]/.test(password)) {
-      score += 1;
-    } else {
-      feedback.push('Include uppercase letters');
-    }
-
-    if (/\d/.test(password)) {
-      score += 1;
-    } else {
-      feedback.push('Include numbers');
-    }
-
-    if (/[!@#$%^&*(),.?":{}|<>]/.test(password)) {
-      score += 1;
-    } else {
-      feedback.push('Include special characters');
-    }
-
-    return { score, feedback };
+  const validatePassword = (password) => {
+    return password.length >= 8 && 
+           /[A-Z]/.test(password) && 
+           /[a-z]/.test(password) && 
+           /\d/.test(password);
   };
-
-  const currentPasswordStrength = calculatePasswordStrength(formData.password);
 
   const validateForm = () => {
     const newErrors = {};
 
-    // Full Name validation
-    if (!formData.fullName.trim()) {
-      newErrors.fullName = 'Full name is required';
-    } else if (formData.fullName.trim().length < 2) {
-      newErrors.fullName = 'Full name must be at least 2 characters';
+    if (!formData.firstName.trim()) {
+      newErrors.firstName = 'First name is required';
     }
 
-    // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!formData.lastName.trim()) {
+      newErrors.lastName = 'Last name is required';
+    }
+
     if (!formData.email) {
       newErrors.email = 'Email is required';
-    } else if (!emailRegex.test(formData.email)) {
+    } else if (!validateEmail(formData.email)) {
       newErrors.email = 'Please enter a valid email address';
     }
 
-    // Password validation
     if (!formData.password) {
       newErrors.password = 'Password is required';
-    } else if (currentPasswordStrength.score < 3) {
-      newErrors.password = 'Password is too weak';
+    } else if (!validatePassword(formData.password)) {
+      newErrors.password = 'Password must be at least 8 characters with uppercase, lowercase, and number';
     }
 
-    // Confirm Password validation
     if (!formData.confirmPassword) {
       newErrors.confirmPassword = 'Please confirm your password';
     } else if (formData.password !== formData.confirmPassword) {
@@ -103,13 +66,14 @@ const RegisterForm = () => {
       [name]: value
     }));
 
-    // Clear error for this field when user starts typing
     if (errors[name]) {
       setErrors(prev => ({
         ...prev,
         [name]: ''
       }));
     }
+
+    setSubmitError('');
   };
 
   const handleSubmit = async (e) => {
@@ -119,222 +83,180 @@ const RegisterForm = () => {
       return;
     }
 
-    setIsSubmitting(true);
+    setIsLoading(true);
+    setSubmitError('');
 
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Handle successful registration
-      console.log('Registration successful:', {
-        fullName: formData.fullName,
-        email: formData.email
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+          firstName: formData.firstName,
+          lastName: formData.lastName
+        }),
       });
 
-      // Reset form
+      const data = await response.json();
+
+      if (!response.ok) {
+        if (response.status === 409) {
+          setSubmitError('An account with this email already exists');
+        } else if (data.message) {
+          setSubmitError(data.message);
+        } else {
+          setSubmitError('Registration failed. Please try again.');
+        }
+        return;
+      }
+
+      setSuccess(true);
       setFormData({
-        fullName: '',
         email: '',
         password: '',
-        confirmPassword: ''
+        confirmPassword: '',
+        firstName: '',
+        lastName: ''
       });
 
     } catch (error) {
-      console.error('Registration failed:', error);
-      setErrors({ submit: 'Registration failed. Please try again.' });
+      console.error('Registration error:', error);
+      setSubmitError('Network error. Please check your connection and try again.');
     } finally {
-      setIsSubmitting(false);
+      setIsLoading(false);
     }
   };
 
-  const getPasswordStrengthColor = () => {
-    switch (currentPasswordStrength.score) {
-      case 0:
-      case 1:
-        return '#ff4757';
-      case 2:
-        return '#ffa502';
-      case 3:
-        return '#f1c40f';
-      case 4:
-      case 5:
-        return '#2ed573';
-      default:
-        return '#ddd';
-    }
-  };
-
-  const getPasswordStrengthText = () => {
-    switch (currentPasswordStrength.score) {
-      case 0:
-      case 1:
-        return 'Very Weak';
-      case 2:
-        return 'Weak';
-      case 3:
-        return 'Fair';
-      case 4:
-        return 'Good';
-      case 5:
-        return 'Strong';
-      default:
-        return '';
-    }
-  };
+  if (success) {
+    return (
+      <div className="register-form-container">
+        <div className="success-message">
+          <h2>Registration Successful!</h2>
+          <p>Your account has been created successfully. Please check your email for verification instructions.</p>
+          <button 
+            onClick={() => setSuccess(false)}
+            className="btn btn-primary"
+          >
+            Register Another Account
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="register-form-container">
-      <form className="register-form" onSubmit={handleSubmit} noValidate>
-        <h2 className="register-form__title">Create Account</h2>
+      <form onSubmit={handleSubmit} className="register-form" noValidate>
+        <h2>Create Account</h2>
+        
+        {submitError && (
+          <div className="error-message global-error">
+            {submitError}
+          </div>
+        )}
 
-        <div className="register-form__field">
-          <label htmlFor="fullName" className="register-form__label">
-            Full Name
-          </label>
-          <input
-            type="text"
-            id="fullName"
-            name="fullName"
-            value={formData.fullName}
-            onChange={handleInputChange}
-            className={`register-form__input ${errors.fullName ? 'register-form__input--error' : ''}`}
-            placeholder="Enter your full name"
-            disabled={isSubmitting}
-          />
-          {errors.fullName && (
-            <span className="register-form__error">{errors.fullName}</span>
-          )}
+        <div className="form-row">
+          <div className="form-group">
+            <label htmlFor="firstName">First Name *</label>
+            <input
+              type="text"
+              id="firstName"
+              name="firstName"
+              value={formData.firstName}
+              onChange={handleInputChange}
+              className={errors.firstName ? 'error' : ''}
+              disabled={isLoading}
+              autoComplete="given-name"
+            />
+            {errors.firstName && (
+              <span className="error-message">{errors.firstName}</span>
+            )}
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="lastName">Last Name *</label>
+            <input
+              type="text"
+              id="lastName"
+              name="lastName"
+              value={formData.lastName}
+              onChange={handleInputChange}
+              className={errors.lastName ? 'error' : ''}
+              disabled={isLoading}
+              autoComplete="family-name"
+            />
+            {errors.lastName && (
+              <span className="error-message">{errors.lastName}</span>
+            )}
+          </div>
         </div>
 
-        <div className="register-form__field">
-          <label htmlFor="email" className="register-form__label">
-            Email Address
-          </label>
+        <div className="form-group">
+          <label htmlFor="email">Email Address *</label>
           <input
             type="email"
             id="email"
             name="email"
             value={formData.email}
             onChange={handleInputChange}
-            className={`register-form__input ${errors.email ? 'register-form__input--error' : ''}`}
-            placeholder="Enter your email"
-            disabled={isSubmitting}
+            className={errors.email ? 'error' : ''}
+            disabled={isLoading}
+            autoComplete="email"
           />
           {errors.email && (
-            <span className="register-form__error">{errors.email}</span>
+            <span className="error-message">{errors.email}</span>
           )}
         </div>
 
-        <div className="register-form__field">
-          <label htmlFor="password" className="register-form__label">
-            Password
-          </label>
-          <div className="register-form__password-container">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              id="password"
-              name="password"
-              value={formData.password}
-              onChange={handleInputChange}
-              className={`register-form__input ${errors.password ? 'register-form__input--error' : ''}`}
-              placeholder="Enter your password"
-              disabled={isSubmitting}
-            />
-            <button
-              type="button"
-              className="register-form__password-toggle"
-              onClick={() => setShowPassword(!showPassword)}
-              disabled={isSubmitting}
-            >
-              {showPassword ? '👁️' : '👁️‍🗨️'}
-            </button>
-          </div>
-          
-          {formData.password && (
-            <div className="register-form__password-strength">
-              <div className="password-strength__bar">
-                <div 
-                  className="password-strength__fill"
-                  style={{
-                    width: `${(currentPasswordStrength.score / 5) * 100}%`,
-                    backgroundColor: getPasswordStrengthColor()
-                  }}
-                />
-              </div>
-              <div className="password-strength__info">
-                <span 
-                  className="password-strength__text"
-                  style={{ color: getPasswordStrengthColor() }}
-                >
-                  {getPasswordStrengthText()}
-                </span>
-                {currentPasswordStrength.feedback.length > 0 && (
-                  <div className="password-strength__feedback">
-                    {currentPasswordStrength.feedback.map((item, index) => (
-                      <span key={index} className="password-strength__feedback-item">
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-          
+        <div className="form-group">
+          <label htmlFor="password">Password *</label>
+          <input
+            type="password"
+            id="password"
+            name="password"
+            value={formData.password}
+            onChange={handleInputChange}
+            className={errors.password ? 'error' : ''}
+            disabled={isLoading}
+            autoComplete="new-password"
+          />
           {errors.password && (
-            <span className="register-form__error">{errors.password}</span>
+            <span className="error-message">{errors.password}</span>
           )}
         </div>
 
-        <div className="register-form__field">
-          <label htmlFor="confirmPassword" className="register-form__label">
-            Confirm Password
-          </label>
-          <div className="register-form__password-container">
-            <input
-              type={showConfirmPassword ? 'text' : 'password'}
-              id="confirmPassword"
-              name="confirmPassword"
-              value={formData.confirmPassword}
-              onChange={handleInputChange}
-              className={`register-form__input ${errors.confirmPassword ? 'register-form__input--error' : ''}`}
-              placeholder="Confirm your password"
-              disabled={isSubmitting}
-            />
-            <button
-              type="button"
-              className="register-form__password-toggle"
-              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-              disabled={isSubmitting}
-            >
-              {showConfirmPassword ? '👁️' : '👁️‍🗨️'}
-            </button>
-          </div>
+        <div className="form-group">
+          <label htmlFor="confirmPassword">Confirm Password *</label>
+          <input
+            type="password"
+            id="confirmPassword"
+            name="confirmPassword"
+            value={formData.confirmPassword}
+            onChange={handleInputChange}
+            className={errors.confirmPassword ? 'error' : ''}
+            disabled={isLoading}
+            autoComplete="new-password"
+          />
           {errors.confirmPassword && (
-            <span className="register-form__error">{errors.confirmPassword}</span>
+            <span className="error-message">{errors.confirmPassword}</span>
           )}
         </div>
-
-        {errors.submit && (
-          <div className="register-form__submit-error">
-            {errors.submit}
-          </div>
-        )}
 
         <button
           type="submit"
-          className="register-form__submit"
-          disabled={isSubmitting}
+          className="btn btn-primary submit-button"
+          disabled={isLoading}
         >
-          {isSubmitting ? 'Creating Account...' : 'Create Account'}
+          {isLoading ? 'Creating Account...' : 'Create Account'}
         </button>
 
-        <div className="register-form__footer">
+        <div className="form-footer">
           <p>
             Already have an account? 
-            <a href="/login" className="register-form__link">
-              Sign in
-            </a>
+            <a href="/login" className="link">Sign in here</a>
           </p>
         </div>
       </form>
@@ -342,4 +264,4 @@ const RegisterForm = () => {
   );
 };
 
-export { RegisterForm };
+export default RegisterForm;

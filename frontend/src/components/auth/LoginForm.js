@@ -1,24 +1,37 @@
 import React, { useState } from 'react';
-import { Card, CardContent, TextField, Button, Typography, Link, Alert, Box } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
-
-// Mock user credentials
-const MOCK_USERS = [
-  { id: 1, email: "john.doe@email.com", password: "password123", fullName: "John Doe", registrationDate: "2024-01-01" },
-  { id: 2, email: "sarah.chen@email.com", password: "travel2024", fullName: "Sarah Chen", registrationDate: "2024-01-02" },
-  { id: 3, email: "admin@travelapp.com", password: "admin123", fullName: "Admin User", registrationDate: "2024-01-03" }
-];
+import { useAuth } from '../../contexts/AuthContext';
+import './LoginForm.css';
 
 const LoginForm = () => {
   const [formData, setFormData] = useState({
     email: '',
     password: ''
   });
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
+  const [errors, setErrors] = useState({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [apiError, setApiError] = useState('');
+
   const navigate = useNavigate();
   const { login } = useAuth();
+
+  const validateForm = () => {
+    const newErrors = {};
+
+    if (!formData.email) {
+      newErrors.email = 'Email is required';
+    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+      newErrors.email = 'Email is invalid';
+    }
+
+    if (!formData.password) {
+      newErrors.password = 'Password is required';
+    } else if (formData.password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
+    }
+
+    return newErrors;
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -26,99 +39,164 @@ const LoginForm = () => {
       ...prev,
       [name]: value
     }));
+
+    // Clear errors when user starts typing
+    if (errors[name]) {
+      setErrors(prev => ({
+        ...prev,
+        [name]: ''
+      }));
+    }
+
+    // Clear API error
+    if (apiError) {
+      setApiError('');
+    }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setError('');
-    setSuccess('');
+    
+    const formErrors = validateForm();
+    if (Object.keys(formErrors).length > 0) {
+      setErrors(formErrors);
+      return;
+    }
 
-    // Validate against mock users
-    const user = MOCK_USERS.find(u =>
-      u.email === formData.email && u.password === formData.password
-    );
+    setIsLoading(true);
+    setApiError('');
 
-    if (user) {
-      setSuccess('Login successful! Redirecting...');
-      login(user);
-      setTimeout(() => {
-        navigate('/dashboard');
-      }, 1500);
-    } else {
-      setError('Invalid email or password. Please try again.');
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password
+        })
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Login failed');
+      }
+
+      // Store token and user data
+      if (data.token) {
+        localStorage.setItem('authToken', data.token);
+      }
+
+      // Update auth context
+      await login(data.user || data);
+
+      // Redirect to dashboard or intended page
+      const redirectPath = new URLSearchParams(window.location.search).get('redirect') || '/dashboard';
+      navigate(redirectPath);
+
+    } catch (error) {
+      console.error('Login error:', error);
+      setApiError(error.message || 'An error occurred during login. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   return (
-    <Card sx={{ maxWidth: 400, mx: 'auto', mt: 4 }}>
-      <CardContent sx={{ p: 4 }}>
-        <Box sx={{ textAlign: 'center', mb: 3 }}>
-          <Typography variant="h4" component="h1" gutterBottom>
-            TravelApp
-          </Typography>
-          <Typography variant="h5" component="h2" color="primary">
-            Sign In
-          </Typography>
-        </Box>
+    <div className="login-form-container">
+      <form onSubmit={handleSubmit} className="login-form" noValidate>
+        <h2 className="login-form-title">Sign In</h2>
+        
+        {apiError && (
+          <div className="error-message api-error" role="alert">
+            {apiError}
+          </div>
+        )}
 
-        {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-        {success && <Alert severity="success" sx={{ mb: 2 }}>{success}</Alert>}
-
-        <form onSubmit={handleSubmit}>
-          <TextField
-            fullWidth
-            label="Email"
-            name="email"
+        <div className="form-group">
+          <label htmlFor="email" className="form-label">
+            Email Address
+          </label>
+          <input
             type="email"
+            id="email"
+            name="email"
             value={formData.email}
             onChange={handleChange}
-            margin="normal"
+            className={`form-input ${errors.email ? 'error' : ''}`}
+            placeholder="Enter your email"
+            disabled={isLoading}
+            autoComplete="email"
             required
           />
+          {errors.email && (
+            <span className="error-message" role="alert">
+              {errors.email}
+            </span>
+          )}
+        </div>
 
-          <TextField
-            fullWidth
-            label="Password"
-            name="password"
+        <div className="form-group">
+          <label htmlFor="password" className="form-label">
+            Password
+          </label>
+          <input
             type="password"
+            id="password"
+            name="password"
             value={formData.password}
             onChange={handleChange}
-            margin="normal"
+            className={`form-input ${errors.password ? 'error' : ''}`}
+            placeholder="Enter your password"
+            disabled={isLoading}
+            autoComplete="current-password"
             required
           />
+          {errors.password && (
+            <span className="error-message" role="alert">
+              {errors.password}
+            </span>
+          )}
+        </div>
 
-          <Button
-            type="submit"
-            fullWidth
-            variant="contained"
-            sx={{ mt: 3, mb: 2 }}
-          >
-            Sign In
-          </Button>
-        </form>
+        <div className="form-options">
+          <label className="checkbox-label">
+            <input type="checkbox" name="remember" />
+            <span className="checkmark"></span>
+            Remember me
+          </label>
+          <a href="/forgot-password" className="forgot-password-link">
+            Forgot password?
+          </a>
+        </div>
 
-        <Box sx={{ textAlign: 'center' }}>
-          <Link
-            component="button"
-            variant="body2"
-            onClick={() => navigate('/forgot-password')}
-            sx={{ display: 'block', mb: 1 }}
-          >
-            Forgot Password?
-          </Link>
+        <button
+          type="submit"
+          className={`login-button ${isLoading ? 'loading' : ''}`}
+          disabled={isLoading}
+        >
+          {isLoading ? (
+            <>
+              <span className="loading-spinner"></span>
+              Signing in...
+            </>
+          ) : (
+            'Sign In'
+          )}
+        </button>
 
-          <Typography variant="body2">
+        <div className="form-footer">
+          <p>
             Don't have an account?{' '}
-            <Link
-              component="button"
-              onClick={() => navigate('/register')}
-            >
-              Register here
-            </Link>
-          </Typography>
-        </Box>
-      </CardContent>
-    </Card>
+            <a href="/register" className="register-link">
+              Sign up
+            </a>
+          </p>
+        </div>
+      </form>
+    </div>
   );
 };
 

@@ -1,414 +1,785 @@
-import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import {
-  Box,
-  Container,
-  Typography,
-  Grid,
-  Card,
-  CardContent,
-  CardActions,
-  Button,
-  TextField,
-  Select,
-  MenuItem,
-  FormControl,
-  InputLabel,
-  Pagination,
-  Chip,
-  IconButton,
-  Tooltip,
-  CircularProgress,
-  Alert,
-  Stack,
-  Paper
-} from '@mui/material';
-import {
-  Search as SearchIcon,
-  FilterList as FilterIcon,
-  Sort as SortIcon,
-  Refresh as RefreshIcon,
-  Download as DownloadIcon,
-  Info as InfoIcon
-} from '@mui/icons-material';
-
-const ITEMS_PER_PAGE = 12;
-
-const fetchPackages = async ({ page = 1, search = '', sortBy = 'name', sortOrder = 'asc', category = '', status = '' }) => {
-  const params = new URLSearchParams({
-    page: page.toString(),
-    limit: ITEMS_PER_PAGE.toString(),
-    search,
-    sortBy,
-    sortOrder,
-    ...(category && { category }),
-    ...(status && { status })
-  });
-
-  const response = await fetch(`/api/packages?${params}`);
-  if (!response.ok) {
-    throw new Error('Failed to fetch packages');
-  }
-  return response.json();
-};
+import React, { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import './PackagesPage.css';
 
 const PackagesPage = () => {
-  const [page, setPage] = useState(1);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [sortBy, setSortBy] = useState('name');
-  const [sortOrder, setSortOrder] = useState('asc');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-
-  React.useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(searchTerm);
-      setPage(1);
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [searchTerm]);
-
-  const {
-    data,
-    isLoading,
-    isError,
-    error,
-    refetch,
-    isFetching
-  } = useQuery({
-    queryKey: ['packages', page, debouncedSearch, sortBy, sortOrder, categoryFilter, statusFilter],
-    queryFn: () => fetchPackages({
-      page,
-      search: debouncedSearch,
-      sortBy,
-      sortOrder,
-      category: categoryFilter,
-      status: statusFilter
-    }),
-    keepPreviousData: true,
-    staleTime: 5 * 60 * 1000,
-    cacheTime: 10 * 60 * 1000
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [packages, setPackages] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [selectedPackages, setSelectedPackages] = useState([]);
+  const [showComparison, setShowComparison] = useState(false);
+  const [packages] = useState(travelPackages);
+  const [showComparison, setShowComparison] = useState(false);
+  const [packages] = useState(travelPackages);
+  
+  // Filter states
+  const [filters, setFilters] = useState({
+    search: searchParams.get('search') || '',
+    category: searchParams.get('category') || '',
+    priceRange: [
+      parseInt(searchParams.get('minPrice')) || 0,
+      parseInt(searchParams.get('maxPrice')) || 10000
+    ],
+    duration: searchParams.get('duration') || '',
+    rating: parseFloat(searchParams.get('rating')) || 0,
+    sortBy: searchParams.get('sortBy') || 'popularity'
   });
 
-  const packages = data?.packages || [];
-  const totalPages = Math.ceil((data?.total || 0) / ITEMS_PER_PAGE);
-  const totalCount = data?.total || 0;
+  // Fetch packages
+  useEffect(() => {
+    const fetchPackages = async () => {
+      try {
+        setLoading(true);
+        const response = await fetch('/api/packages');
+        if (!response.ok) throw new Error('Failed to fetch packages');
+        const data = await response.json();
+        setPackages(data);
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const categories = useMemo(() => [
-    'Web Framework',
-    'Database',
-    'Authentication',
-    'Utilities',
-    'UI Components',
-    'Testing',
-    'Build Tools',
-    'Development'
-  ], []);
+    fetchPackages();
+  }, []);
 
-  const statuses = useMemo(() => [
-    'active',
-    'deprecated',
-    'beta',
-    'stable'
-  ], []);
+  // Update URL params when filters change
+  useEffect(() => {
+    const params = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (key === 'priceRange') {
+        if (value[0] > 0) params.set('minPrice', value[0]);
+        if (value[1] < 10000) params.set('maxPrice', value[1]);
+      } else if (value && value !== '' && value !== 0) {
+        params.set(key, value);
+      }
+    });
+    setSearchParams(params);
+  }, [filters, setSearchParams]);
 
-  const handlePageChange = (event, newPage) => {
-    setPage(newPage);
+  // Filter and sort packages
+  const filteredPackages = useMemo(() => {
+    let filtered = packages.filter(pkg => {
+      const matchesSearch = !filters.search || 
+        pkg.name.toLowerCase().includes(filters.search.toLowerCase()) ||
+        pkg.description.toLowerCase().includes(filters.search.toLowerCase());
+      
+      const matchesCategory = !filters.category || pkg.category === filters.category;
+      
+      const matchesPrice = pkg.price >= filters.priceRange[0] && 
+        pkg.price <= filters.priceRange[1];
+      
+      const matchesDuration = !filters.duration || pkg.duration === filters.duration;
+      
+      const matchesRating = pkg.rating >= filters.rating;
+
+      return matchesSearch && matchesCategory && matchesPrice && 
+             matchesDuration && matchesRating;
+    });
+
+    // Sort packages
+    filtered.sort((a, b) => {
+      switch (filters.sortBy) {
+        case 'price-low':
+          return a.price - b.price;
+        case 'price-high':
+          return b.price - a.price;
+        case 'rating':
+          return b.rating - a.rating;
+        case 'duration':
+          return a.durationDays - b.durationDays;
+        case 'name':
+          return a.name.localeCompare(b.name);
+        case 'popularity':
+        default:
+          return b.popularity - a.popularity;
+      }
+    });
+
+    return filtered;
+  }, [packages, filters]);
+
+  const handleFilterChange = (newFilters) => {
+    setFilters(prev => ({ ...prev, ...newFilters }));
   };
 
-  const handleSortChange = (field) => {
-    if (sortBy === field) {
-      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortBy(field);
-      setSortOrder('asc');
+  const handlePackageSelect = (packageId) => {
+    setSelectedPackages(prev => {
+      if (prev.includes(packageId)) {
+        return prev.filter(id => id !== packageId);
+      } else if (prev.length < 3) {
+        return [...prev, packageId];
+      }
+      return prev;
+    });
+  };
+
+  const handleComparePackages = () => {
+    if (selectedPackages.length >= 2) {
+      setShowComparison(true);
     }
-    setPage(1);
   };
 
-  const handleClearFilters = () => {
-    setSearchTerm('');
-    setCategoryFilter('');
-    setStatusFilter('');
-    setSortBy('name');
-    setSortOrder('asc');
-    setPage(1);
+  const clearComparison = () => {
+    setSelectedPackages([]);
+    setShowComparison(false);
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'active':
-        return 'success';
-      case 'deprecated':
-        return 'error';
-      case 'beta':
-        return 'warning';
-      case 'stable':
-        return 'primary';
-      default:
-        return 'default';
-    }
-  };
-
-  const formatDownloads = (downloads) => {
-    if (downloads >= 1000000) {
-      return `${(downloads / 1000000).toFixed(1)}M`;
-    }
-    if (downloads >= 1000) {
-      return `${(downloads / 1000).toFixed(1)}K`;
-    }
-    return downloads.toString();
-  };
-
-  if (isError) {
+  if (loading) {
     return (
-      <Container maxWidth="lg" sx={{ mt: 4 }}>
-        <Alert 
-          severity="error" 
-          action={
-            <Button color="inherit" size="small" onClick={() => refetch()}>
-              Retry
-            </Button>
-          }
-        >
-          Error loading packages: {error.message}
-        </Alert>
-      </Container>
+    <div className="breadcrumb">
+      <a href="/dashboard">Home</a> > <span>Packages</span>
+    </div>
+      <div className="packages-page">
+        <div className="loading-spinner">
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+          <div className="spinner"></div>
+          <p>Loading packages...</p>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+        </div>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+    <div className="breadcrumb">
+      <a href="/dashboard">Home</a> > <span>Packages</span>
+    </div>
+      <div className="packages-page">
+        <div className="error-message">
+          <h2>Error Loading Packages</h2>
+          <p>{error}</p>
+          <button onClick={() => window.location.reload()}>Retry</button>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+        </div>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+      </div>
     );
   }
 
   return (
-    <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          Package Registry
-        </Typography>
-        <Typography variant="body1" color="text.secondary">
-          Discover and manage packages in your registry
-        </Typography>
-      </Box>
-
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md={4}>
-            <TextField
-              fullWidth
-              placeholder="Search packages..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              InputProps={{
-                startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
-              }}
-            />
-          </Grid>
-          
-          <Grid item xs={12} sm={6} md={2}>
-            <FormControl fullWidth>
-              <InputLabel>Category</InputLabel>
-              <Select
-                value={categoryFilter}
-                label="Category"
-                onChange={(e) => setCategoryFilter(e.target.value)}
-              >
-                <MenuItem value="">All Categories</MenuItem>
-                {categories.map((category) => (
-                  <MenuItem key={category} value={category}>
-                    {category}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
-
-          <Grid item xs={12} sm={6} md={2}>
-            <FormControl fullWidth>
-              <InputLabel>Status</InputLabel>
-              <Select
-                value={statusFilter}
-                label="Status"
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <MenuItem value="">All Status</MenuItem>
-                {statuses.map((status) => (
-                  <MenuItem key={status} value={status}>
-                    {status.charAt(0).toUpperCase() + status.slice(1)}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-          </Grid>
-
-          <Grid item xs={12} sm={6} md={2}>
-            <FormControl fullWidth>
-              <InputLabel>Sort By</InputLabel>
-              <Select
-                value={sortBy}
-                label="Sort By"
-                onChange={(e) => setSortBy(e.target.value)}
-              >
-                <MenuItem value="name">Name</MenuItem>
-                <MenuItem value="version">Version</MenuItem>
-                <MenuItem value="downloads">Downloads</MenuItem>
-                <MenuItem value="updated">Updated</MenuItem>
-              </Select>
-            </FormControl>
-          </Grid>
-
-          <Grid item xs={12} sm={6} md={2}>
-            <Stack direction="row" spacing={1}>
-              <Tooltip title={`Sort ${sortOrder === 'asc' ? 'Descending' : 'Ascending'}`}>
-                <IconButton onClick={() => handleSortChange(sortBy)}>
-                  <SortIcon />
-                </IconButton>
-              </Tooltip>
-              <Tooltip title="Refresh">
-                <IconButton onClick={() => refetch()} disabled={isFetching}>
-                  <RefreshIcon />
-                </IconButton>
-              </Tooltip>
-            </Stack>
-          </Grid>
-        </Grid>
-
-        {(searchTerm || categoryFilter || statusFilter) && (
-          <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography variant="body2" color="text.secondary">
-              Active filters:
-            </Typography>
-            {searchTerm && (
-              <Chip
-                label={`Search: ${searchTerm}`}
-                onDelete={() => setSearchTerm('')}
-                size="small"
-              />
-            )}
-            {categoryFilter && (
-              <Chip
-                label={`Category: ${categoryFilter}`}
-                onDelete={() => setCategoryFilter('')}
-                size="small"
-              />
-            )}
-            {statusFilter && (
-              <Chip
-                label={`Status: ${statusFilter}`}
-                onDelete={() => setStatusFilter('')}
-                size="small"
-              />
-            )}
-            <Button size="small" onClick={handleClearFilters}>
-              Clear All
-            </Button>
-          </Box>
-        )}
-      </Paper>
-
-      <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="body2" color="text.secondary">
-          {isLoading ? 'Loading...' : `${totalCount} packages found`}
-        </Typography>
-        {isFetching && <CircularProgress size={20} />}
-      </Box>
-
-      {isLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress />
-        </Box>
-      ) : (
-        <>
-          <Grid container spacing={3}>
-            {packages.map((pkg) => (
-              <Grid item xs={12} sm={6} md={4} key={pkg.id}>
-                <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-                  <CardContent sx={{ flexGrow: 1 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                      <Typography variant="h6" component="h2" noWrap>
-                        {pkg.name}
-                      </Typography>
-                      <Chip
-                        label={pkg.status}
-                        color={getStatusColor(pkg.status)}
-                        size="small"
-                      />
-                    </Box>
-                    
-                    <Typography variant="body2" color="text.secondary" gutterBottom>
-                      v{pkg.version}
-                    </Typography>
-                    
-                    <Typography variant="body2" sx={{ mb: 2, minHeight: 40 }}>
-                      {pkg.description || 'No description available'}
-                    </Typography>
-                    
-                    {pkg.category && (
-                      <Chip
-                        label={pkg.category}
-                        variant="outlined"
-                        size="small"
-                        sx={{ mb: 1 }}
-                      />
-                    )}
-                    
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2 }}>
-                      <Typography variant="caption" color="text.secondary">
-                        {formatDownloads(pkg.downloads || 0)} downloads
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {new Date(pkg.updatedAt).toLocaleDateString()}
-                      </Typography>
-                    </Box>
-                  </CardContent>
-                  
-                  <CardActions>
-                    <Button
-                      size="small"
-                      startIcon={<InfoIcon />}
-                      onClick={() => window.open(`/packages/${pkg.name}`, '_blank')}
-                    >
-                      Details
-                    </Button>
-                    <Button
-                      size="small"
-                      startIcon={<DownloadIcon />}
-                      onClick={() => window.open(`/packages/${pkg.name}/download`, '_blank')}
-                    >
-                      Download
-                    </Button>
-                  </CardActions>
-                </Card>
-              </Grid>
-            ))}
-          </Grid>
-
-          {packages.length === 0 && !isLoading && (
-            <Box sx={{ textAlign: 'center', py: 8 }}>
-              <Typography variant="h6" color="text.secondary">
-                No packages found
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Try adjusting your search criteria or filters
-              </Typography>
-            </Box>
-          )}
-
-          {totalPages > 1 && (
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-              <Pagination
-                count={totalPages}
-                page={page}
-                onChange={handlePageChange}
-                color="primary"
-                showFirstButton
-                showLastButton
-              />
-            </Box>
-          )}
-        </>
+    <div className="breadcrumb">
+      <a href="/dashboard">Home</a> > <span>Packages</span>
+    </div>
+    <div className="packages-page">
+      <div className="packages-header">
+        <h1>Travel Packages</h1>
+        <p className="subtitle">Curated experiences for every traveler</p>
+        <p>Discover amazing destinations and create unforgettable memories</p>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
       )}
-    </Container>
+      </div>
+
+      <div className="packages-content">
+        <aside className="filters-sidebar">
+          <PackageFilters
+            filters={filters}
+            onFiltersChange={handleFilterChange}
+            totalPackages={packages.length}
+            filteredCount={filteredPackages.length}
+          />
+        </aside>
+
+        <main className="packages-main">
+          <div className="packages-toolbar">
+            <div className="results-info">
+              <span>{filteredPackages.length} packages found</span>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+            </div>
+            <div className="sort-controls">
+              <label htmlFor="sort-select">Sort by:</label>
+              <select
+                id="sort-select"
+                value={filters.sortBy}
+                onChange={(e) => handleFilterChange({ sortBy: e.target.value })}
+              >
+                <option value="popularity">Popularity</option>
+                <option value="price-low">Price: Low to High</option>
+                <option value="price-high">Price: High to Low</option>
+                <option value="rating">Rating</option>
+                <option value="duration">Duration</option>
+                <option value="name">Name</option>
+              </select>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+            </div>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+          </div>
+
+          <PackageList
+            packages={filteredPackages}
+            selectedPackages={selectedPackages}
+            onPackageSelect={handlePackageSelect}
+          />
+
+          {filteredPackages.length === 0 && (
+            <div className="no-results">
+              <h3>No packages found</h3>
+              <p>Try adjusting your filters or search criteria</p>
+              <button onClick={() => setFilters({
+                search: '',
+                category: '',
+                priceRange: [0, 10000],
+                duration: '',
+                rating: 0,
+                sortBy: 'popularity'
+              })}>
+                Clear All Filters
+              </button>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+            </div>
+          )}
+        </main>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+      </div>
+
+      {selectedPackages.length > 0 && (
+        <div className="compare-button-sticky">
+          <div className="compare-button-content">
+            <span>{selectedPackages.length} package(s) selected</span>
+            <div className="compare-actions">
+              <button
+                className="btn-secondary"
+                onClick={clearComparison}
+              >
+                Clear
+              </button>
+              <button
+                className="btn-primary"
+                onClick={handleComparePackages}
+                disabled={selectedPackages.length < 2}
+              >
+                Compare ({selectedPackages.length})
+              </button>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+            </div>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+          </div>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+        </div>
+      )}
+
+      {showComparison && (
+        <ComparisonModal
+          packageIds={selectedPackages}
+          packages={packages}
+          onClose={() => setShowComparison(false)}
+          onClearSelection={clearComparison}
+        />
+      )}
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+    </div>
   );
 };
 
+// PackageFilters Component
+const PackageFilters = ({ filters, onFiltersChange, totalPackages, filteredCount }) => {
+  const categories = [
+    'Adventure', 'Beach', 'Cultural', 'Wildlife', 'Mountain', 
+    'City Break', 'Cruise', 'Honeymoon', 'Family', 'Luxury'
+  ];
+
+  const durations = [
+    { value: '1-3', label: '1-3 days' },
+    { value: '4-7', label: '4-7 days' },
+    { value: '8-14', label: '1-2 weeks' },
+    { value: '15+', label: '2+ weeks' }
+  ];
+
+  return (
+    <div className="breadcrumb">
+      <a href="/dashboard">Home</a> > <span>Packages</span>
+    </div>
+    <div className="package-filters">
+      <h3>Filters</h3>
+      
+      <div className="filter-group">
+        <label>Search</label>
+        <input
+          type="text"
+          placeholder="Search packages..."
+          value={filters.search}
+          onChange={(e) => onFiltersChange({ search: e.target.value })}
+        />
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+      </div>
+
+      <div className="filter-group">
+        <label>Category</label>
+        <select
+          value={filters.category}
+          onChange={(e) => onFiltersChange({ category: e.target.value })}
+        >
+          <option value="">All Categories</option>
+          {categories.map(cat => (
+            <option key={cat} value={cat}>{cat}</option>
+          ))}
+        </select>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+      </div>
+
+      <div className="filter-group">
+        <label>Price Range</label>
+        <div className="price-range">
+          <input
+            type="range"
+            min="0"
+            max="10000"
+            value={filters.priceRange[0]}
+            onChange={(e) => onFiltersChange({
+              priceRange: [parseInt(e.target.value), filters.priceRange[1]]
+            })}
+          />
+          <input
+            type="range"
+            min="0"
+            max="10000"
+            value={filters.priceRange[1]}
+            onChange={(e) => onFiltersChange({
+              priceRange: [filters.priceRange[0], parseInt(e.target.value)]
+            })}
+          />
+          <div className="price-display">
+            ${filters.priceRange[0]} - ${filters.priceRange[1]}
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+          </div>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+        </div>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+      </div>
+
+      <div className="filter-group">
+        <label>Duration</label>
+        <select
+          value={filters.duration}
+          onChange={(e) => onFiltersChange({ duration: e.target.value })}
+        >
+          <option value="">Any Duration</option>
+          {durations.map(dur => (
+            <option key={dur.value} value={dur.value}>{dur.label}</option>
+          ))}
+        </select>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+      </div>
+
+      <div className="filter-group">
+        <label>Minimum Rating</label>
+        <select
+          value={filters.rating}
+          onChange={(e) => onFiltersChange({ rating: parseFloat(e.target.value) })}
+        >
+          <option value="0">Any Rating</option>
+          <option value="3">3+ Stars</option>
+          <option value="4">4+ Stars</option>
+          <option value="4.5">4.5+ Stars</option>
+        </select>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+      </div>
+
+      <div className="filter-results">
+        <small>{filteredCount} of {totalPackages} packages</small>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+      </div>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+    </div>
+  );
+};
+
+// PackageList Component
+const PackageList = ({ packages, selectedPackages, onPackageSelect }) => {
+  return (
+    <div className="breadcrumb">
+      <a href="/dashboard">Home</a> > <span>Packages</span>
+    </div>
+    <div className="package-list">
+      {packages.map(pkg => (
+        <PackageCard
+          key={pkg.id}
+          package={pkg}
+          isSelected={selectedPackages.includes(pkg.id)}
+          onSelect={() => onPackageSelect(pkg.id)}
+        />
+      ))}
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+    </div>
+  );
+};
+
+// PackageCard Component
+const PackageCard = ({ package: pkg, isSelected, onSelect }) => {
+  return (
+    <div className="breadcrumb">
+      <a href="/dashboard">Home</a> > <span>Packages</span>
+    </div>
+    <div className={`package-card ${isSelected ? 'selected' : ''}`}>
+      <div className="package-image">
+        <img src={pkg.image} alt={pkg.name} />
+        <div className="package-actions">
+          <button
+            className={`compare-btn ${isSelected ? 'active' : ''}`}
+            onClick={onSelect}
+          >
+            {isSelected ? '✓' : '+'}
+          </button>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+        </div>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+      </div>
+      
+      <div className="package-content">
+        <div className="package-header">
+          <h3>{pkg.name}</h3>
+          <div className="package-rating">
+            <span className="stars">{'★'.repeat(Math.floor(pkg.rating))}</span>
+            <span className="rating-value">{pkg.rating}</span>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+          </div>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+        </div>
+        
+        <p className="package-description">{pkg.description}</p>
+        
+        <div className="package-details">
+          <div className="detail-item">
+            <span className="label">Duration:</span>
+            <span>{pkg.duration}</span>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+          </div>
+          <div className="detail-item">
+            <span className="label">Category:</span>
+            <span>{pkg.category}</span>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+          </div>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+        </div>
+        
+        <div className="package-footer">
+          <div className="package-price">
+            <span className="price">${pkg.price}</span>
+            <span className="per-person">per person</span>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+          </div>
+          <button className="btn-primary">View Details</button>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+        </div>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+      </div>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+    </div>
+  );
+};
+
+// ComparisonModal Component
+const ComparisonModal = ({ packageIds, packages, onClose, onClearSelection }) => {
+  const selectedPackages = packages.filter(pkg => packageIds.includes(pkg.id));
+  
+  return (
+    <div className="breadcrumb">
+      <a href="/dashboard">Home</a> > <span>Packages</span>
+    </div>
+    <div className="comparison-modal-overlay" onClick={onClose}>
+      <div className="comparison-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2>Package Comparison</h2>
+          <button className="close-btn" onClick={onClose}>×</button>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+        </div>
+        
+        <div className="comparison-content">
+          <div className="comparison-table">
+            {selectedPackages.map(pkg => (
+              <div key={pkg.id} className="comparison-column">
+                <img src={pkg.image} alt={pkg.name} />
+                <h3>{pkg.name}</h3>
+                <div className="comparison-details">
+                  <div className="detail-row">
+                    <span className="label">Price:</span>
+                    <span>${pkg.price}</span>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+                  </div>
+                  <div className="detail-row">
+                    <span className="label">Duration:</span>
+                    <span>{pkg.duration}</span>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+                  </div>
+                  <div className="detail-row">
+                    <span className="label">Rating:</span>
+                    <span>{pkg.rating} ★</span>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+                  </div>
+                  <div className="detail-row">
+                    <span className="label">Category:</span>
+                    <span>{pkg.category}</span>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+                  </div>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+                </div>
+                <button className="btn-primary">Select Package</button>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+              </div>
+            ))}
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+          </div>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+        </div>
+        
+        <div className="modal-footer">
+          <button className="btn-secondary" onClick={onClearSelection}>
+            Clear Selection
+          </button>
+          <button className="btn-secondary" onClick={onClose}>
+            Close
+          </button>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+        </div>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+      </div>
+      {showComparison && (
+        <PackageComparisonModal
+          packages={selectedPackages}
+          onClose={() => setShowComparison(false)}
+        />
+      )}
+    </div>
+  );
+};
+
+export { PackagesPage };
 export default PackagesPage;
